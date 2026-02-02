@@ -8,8 +8,8 @@ from zai import ZaiClient
 from google import genai
 
 # --- IDENTITY & CONFIGURATION ---
-DEFAULT_ZAI_KEY = "af771f2849ec4e169a0fca07d951e10e.gmT5KGB7QFvmy527"
-DEFAULT_GEMINI_KEY = "AIzaSyCHUaVr1NORjMCpgACcuqOdpfMMkIFpILo"
+DEFAULT_ZAI_KEY = "*********************************"
+DEFAULT_GEMINI_KEY = "**********************************"
 DEFAULT_PRIMARY_MODEL = "glm-4.7-flash"
 DEFAULT_FALLBACK_MODEL = "gemini-3-flash-preview"
 CONFIG_FILE = "config.json"
