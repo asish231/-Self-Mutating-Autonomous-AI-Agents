@@ -1,0 +1,176 @@
+import os
+import sys
+import ast
+import shutil
+import re
+from typing import Callable, Optional
+
+class SelfMutator:
+    """
+    Responsible for the 'Mutation' phase of the Biological Loop.
+    It reads the current source code, applies changes suggested by the LLM,
+    validates syntax, and rewrites the file to trigger a 'Rebirth'.
+    """
+
+    def __init__(self, root_dir: str, script_path: str, log_func: Callable[[str], None]):
+        """
+        Initializes the SelfMutator.
+
+        Args:
+            root_dir (str): The root directory of the agent.
+            script_path (str): The absolute path to the main evolve_agent.py file.
+            log_func (Callable[[str], None]): A function to use for logging messages.
+        """
+        self.root_dir = root_dir
+        self.script_path = script_path
+        self.log = log_func
+        self.backup_dir = os.path.join(root_dir, "backups")
+
+    def log(self, message: str):
+        """Internal logging wrapper."""
+        if self.log:
+            self.log(message)
+        else:
+            print(f"[SelfMutator] {message}")
+
+    def read_self(self) -> str:
+        """
+        Reads the current source code of the agent.
+        """
+        try:
+            with open(self.script_path, "r", encoding="utf-8") as f:
+                return f.read()
+        except Exception as e:
+            self.log(f"Failed to read self: {e}")
+            raise
+
+    def extract_code_from_response(self, llm_response: str) -> Optional[str]:
+        """
+        Helper to extract Python code from the LLM response.
+        LLMs often wrap code in markdown blocks (```python ... ```).
+        """
+        # Remove markdown code blocks if present
+        code_block_pattern = r"```python\s*(.*?)\s*```"
+        matches = re.findall(code_block_pattern, llm_response, re.DOTALL)
+        if matches:
+            return matches[0].strip()
+        
+        # Fallback: Check if the response is just raw code
+        # Simple heuristic: if it starts with 'def' or 'class', assume it's code
+        if llm_response.strip().startswith(('def ', 'class ', 'import ', 'from ')):
+            return llm_response.strip()
+            
+        self.log("Could not extract valid Python code from LLM response.")
+        return None
+
+    def validate_syntax(self, code: str) -> bool:
+        """
+        Validates the syntax of the proposed code using Python's AST.
+        """
+        try:
+            ast.parse(code)
+            return True
+        except SyntaxError as e:
+            self.log(f"Syntax Error detected: {e}")
+            return False
+
+    def create_backup(self) -> str:
+        """
+        Creates a backup of the current state before mutation.
+        Returns the path to the backup file.
+        """
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        filename = f"evolve_agent_{timestamp}.bak"
+        backup_path = os.path.join(self.backup_dir, filename)
+        
+        try:
+            # Create backup directory if it doesn't exist
+            os.makedirs(self.backup_dir, exist_ok=True)
+            shutil.copy2(self.script_path, backup_path)
+            self.log(f"Backup created: {backup_path}")
+            return backup_path
+        except Exception as e:
+            self.log(f"Failed to create backup: {e}")
+            raise
+
+    def cleanup_old_backups(self):
+        """
+        Maintains a rolling window of the 3 most recent backups to save disk space.
+        """
+        try:
+            if not os.path.exists(self.backup_dir):
+                return
+
+            # Get list of all .bak files
+            backups = [f for f in os.listdir(self.backup_dir) if f.endswith(".bak")]
+            
+            if len(backups) <= 3:
+                return
+
+            # Sort by modification time (oldest first)
+            backups.sort(key=lambda x: os.path.getmtime(os.path.join(self.backup_dir, x)))
+
+            # Delete files beyond the 3 most recent
+            for old_backup in backups[:-3]:
+                old_path = os.path.join(self.backup_dir, old_backup)
+                try:
+                    os.remove(old_path)
+                    self.log(f"Cleaned up old backup: {old_backup}")
+                except Exception as e:
+                    self.log(f"Failed to delete old backup {old_backup}: {e}")
+                    
+        except Exception as e:
+            self.log(f"Error during backup cleanup: {e}")
+
+    def apply_evolution(self, llm_response: str):
+        """
+        The core mutation logic.
+        1. Extracts code from response.
+        2. Validates syntax.
+        3. Creates backup.
+        4. Writes new code.
+        5. Initiates restart.
+        """
+        self.log("Attempting to apply evolution...")
+
+        # 1. Extract Code
+        new_code = self.extract_code_from_response(llm_response)
+        if not new_code:
+            raise ValueError("No valid code extracted from LLM response.")
+
+        # 2. Validate Syntax
+        if not self.validate_syntax(new_code):
+            raise ValueError("Generated code failed syntax validation.")
+
+        # 3. Backup
+        self.create_backup()
+        self.cleanup_old_backups()
+
+        # 4. Write Update
+        try:
+            with open(self.script_path, "w", encoding="utf-8") as f:
+                f.write(new_code)
+            self.log("Self updated successfully.")
+        except Exception as e:
+            self.log(f"Failed to write to self: {e}")
+            raise
+
+        # 5. Rebirth (Restart)
+        self.log("Rebirth sequence initiated. Restarting...")
+        self.restart()
+
+    def restart(self):
+        """
+        Terminates the current process and spawns a new instance.
+        """
+        # Ensure we are using the absolute path to the executable
+        python_exe = sys.executable
+        argv = [python_exe] + sys.argv
+        
+        self.log(f"Restarting with command: {argv}")
+        
+        # os.execv replaces the current process
+        os.execv(python_exe, argv)
+        # If execv returns, it means an error occurred
+        self.log("FATAL: os.execv failed to restart process.")
+        sys.exit(1)

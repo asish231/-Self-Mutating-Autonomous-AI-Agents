@@ -1,0 +1,181 @@
+import os
+import re # For regex parsing
+from typing import Callable, Tuple, List, Dict
+
+# Assuming ModelClientManager and MemoryManager are in modules.core and modules.memory respectively
+# We will pass the ModelClientManager instance to AgentPlanner, not import it directly here to avoid circular dependencies
+# if Planner also calls ModelClientManager.
+
+class AgentPlanner:
+    """
+    Manages the agent's strategic planning, defining the next critical tasks
+    based on the current system context and overall architectural goals.
+    This module formulates the LLM queries that drive the agent's evolution.
+    """
+
+    def __init__(self, client_manager: object, log_func: Callable[[str], None]):
+        """
+        Initializes the AgentPlanner with a ModelClientManager instance and a logging function.
+
+        Args:
+            client_manager (object): An instance of ModelClientManager (or similar)
+                                     used to interact with LLMs for planning.
+            log_func (Callable[[str], None]): A function to use for logging messages.
+        """
+        self.client_manager = client_manager
+        self.log = log_func
+        self.overall_goal = (
+            "You are the GENESIS KERNEL. You are an autonomous AI Architect. "
+            "Your goal is to build a high-capability AI Operating System from scratch."
+        )
+        
+        # Define a prioritized list of architectural components/modules to build
+        # The key is a conceptual name, value is the expected file path relative to root_dir.
+        self.architectural_roadmap: Dict[str, str] = {
+            "Networking Module": "modules/networking.py",
+            "Task Executor": "modules/executor.py", # For executing external commands/scripts
+            "Multi-Agent Coordination": "modules/multi_agent.py",
+            "Perception Module": "modules/perception.py", # For advanced environment sensing
+            "Action Module": "modules/action.py", # For more structured interaction with the environment
+            "GUI Module": "modules/gui.py", # For visualizing state/interaction
+            "Advanced Memory System": "modules/long_term_memory.py", # If current memory needs scaling
+            # ... add more as the architecture evolves
+        }
+
+    def _identify_missing_components(self, context: str) -> List[str]:
+        """
+        Analyzes the current system context to identify which components from the
+        architectural roadmap are still missing.
+
+        Args:
+            context (str): The aggregated string representation of the current
+                           system's files and internal state.
+
+        Returns:
+            List[str]: A list of conceptual names of missing components, in roadmap order.
+        """
+        missing_components = []
+        for component_name, file_path in self.architectural_roadmap.items():
+            # Check if the file path exists in the context by looking for its header
+            file_header = f"--- FILE: {file_path} ---"
+            if file_header not in context:
+                missing_components.append(component_name)
+                    
+        self.log(f"Identified missing components: {missing_components}")
+        return missing_components
+
+    def formulate_next_llm_query(self, current_context: str) -> Tuple[str, str]:
+        """
+        Formulates the system and user prompts for the LLM to guide the next evolution step,
+        prioritizing the creation of missing architectural components.
+
+        Args:
+            current_context (str): The aggregated string representation of the current
+                                   system's files and internal state.
+
+        Returns:
+            Tuple[str, str]: A tuple containing the system_prompt and user_prompt.
+        """
+        self.log("AgentPlanner: Formulating next LLM query...")
+
+        missing_components = self._identify_missing_components(current_context)
+
+        if not missing_components:
+            # If all planned components are present, pivot to refinement or next phase.
+            self.log("All planned architectural components are present. Pivoting to refinement or identifying next-level goals.")
+            
+            # As a fallback, if everything in the roadmap is done, suggest enhancing `utils.py`
+            # or `core.py` as a general quality-of-life improvement or robustness pass.
+            target_filename = "modules/utils.py"
+            specific_directive = (
+                "All primary architectural modules seem to be in place. Your next task is to enhance the existing "
+                "`modules/utils.py` to add more general-purpose helper functions (e.g., string manipulation, "
+                "logging utilities, or a basic `os_info` function to gather system details). "
+                "Focus on expanding the utility and robustness of the existing module."
+            )
+        else:
+            # Pick the highest priority missing component from the roadmap
+            next_component_name = missing_components[0]
+            next_component_filepath = self.architectural_roadmap[next_component_name]
+            
+            self.log(f"AgentPlanner: Next critical component to build: {next_component_name} at {next_component_filepath}")
+            
+            # Formulate a specific directive for the LLM based on the component
+            if next_component_name == "Networking Module":
+                specific_directive = (
+                    f"The next critical step is to implement a '{next_component_name}'. "
+                    f"Your task is to create the file '{next_component_filepath}'. "
+                    "This module should provide basic HTTP networking capabilities, "
+                    "including functions to perform GET and POST requests. "
+                    "Integrate the `requests` library for this purpose. "
+                    "Ensure robust error handling (e.g., network issues, timeouts, status codes). "
+                    "Do NOT include LLM specific logic here; focus purely on general network communication. "
+                    "The `ModelClientManager` in `modules/core.py` already handles LLM calls, so this new module "
+                    "should be a general-purpose networking utility."
+                )
+            elif next_component_name == "Task Executor":
+                specific_directive = (
+                    f"The next critical step is to implement a '{next_component_name}'. "
+                    f"Your task is to create the file '{next_component_filepath}'. "
+                    "This module should provide a safe interface to execute system commands using Python's `subprocess` module. "
+                    "Implement a whitelist mechanism to prevent malicious commands. "
+                    "Include timeout controls and robust error handling for process execution."
+                )
+            elif next_component_name == "Multi-Agent Coordination":
+                specific_directive = (
+                    f"The next critical step is to implement a '{next_component_name}'. "
+                    f"Your task is to create the file '{next_component_filepath}'. "
+                    "This module should define a class `MultiAgentCoordinator` that can register, coordinate, and monitor multiple agents. "
+                    "It should handle thread-safe communication and task assignment logic."
+                )
+            elif next_component_name == "Perception Module":
+                specific_directive = (
+                    f"The next critical step is to implement a '{next_component_name}'. "
+                    f"Your task is to create the file '{next_component_filepath}'. "
+                    "This module should aggregate data gathering capabilities. "
+                    "It should be able to read local files and fetch web pages, utilizing the `FileSystem` and `NetworkManager` utilities."
+                )
+            elif next_component_name == "Action Module":
+                specific_directive = (
+                    f"The next critical step is to implement a '{next_component_name}'. "
+                    f"Your task is to create the file '{next_component_filepath}'. "
+                    "This module should provide high-level actions such as creating files, downloading content, or sending HTTP requests, "
+                    "wrapping the lower-level utilities provided by `FileSystem`, `NetworkManager`, and `TaskExecutor`."
+                )
+            elif next_component_name == "GUI Module":
+                specific_directive = (
+                    f"The next critical step is to implement a '{next_component_name}'. "
+                    f"Your task is to create the file '{next_component_filepath}'. "
+                    "This module should provide a visual interface (e.g., using Tkinter) to visualize the agent's state, logs, and memory. "
+                    "It must run in a separate thread to avoid blocking the main agent loop."
+                )
+            elif next_component_name == "Advanced Memory System":
+                specific_directive = (
+                    f"The next critical step is to implement a '{next_component_name}'. "
+                    f"Your task is to create the file '{next_component_filepath}'. "
+                    "This module should extend the basic memory management by storing structured 'experiences' in a database. "
+                    "It should allow the agent to log and retrieve historical events for long-term context."
+                )
+            else:
+                specific_directive = (
+                    f"The next critical step is to implement '{next_component_name}'. "
+                    f"Your task is to create the file '{next_component_filepath}'. "
+                    "Implement the core functionality required for this architectural component."
+                )
+
+        system_prompt = (
+            f"{self.overall_goal}\n\n"
+            "Your current objective is to build the next missing component in the system architecture.\n\n"
+            "Current System Context:\n{current_context}\n\n"
+            f"Target Component: {next_component_name}\n"
+            f"Target File: {next_component_filepath}\n\n"
+            "Instructions:\n"
+            "1. Analyze the existing code in the context to understand the coding style and dependencies.\n"
+            "2. Write the complete code for the new file '{next_component_filepath}'.\n"
+            "3. Ensure it follows the existing patterns (e.g., using a log_func).\n"
+            "4. Include necessary imports.\n"
+            "5. Ensure the code is syntactically correct and robust.\n\n"
+            "Respond ONLY with the Python code block for the new file. Do not include explanations outside the code."
+        )
+
+        return system_prompt, specific_directive

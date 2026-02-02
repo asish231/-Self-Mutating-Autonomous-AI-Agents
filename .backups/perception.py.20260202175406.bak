@@ -1,0 +1,97 @@
+import os
+from typing import Optional, Dict, Any, List, Callable
+import json
+
+# Assuming NetworkManager and FileSystem are in modules.networking and modules.utils respectively
+from modules.networking import NetworkManager
+from modules.utils import FileSystem
+
+class PerceptionModule:
+    """
+    Provides the Genesis Kernel with advanced environmental sensing capabilities.
+    This module aggregates functionality for gathering information from the
+    local file system, external web sources, and potentially other system interfaces.
+    It leverages existing utility modules like NetworkManager and FileSystem.
+    """
+
+    def __init__(self, log_func: Optional[Callable[[str], None]] = None):
+        """
+        Initializes the PerceptionModule.
+
+        Args:
+            log_func (Optional[Callable[[str], None]]): A function to use for logging messages.
+                                                        If None, a default print-based logger is used.
+        """
+        self.log = log_func if log_func else self._default_log
+        self.network_manager = NetworkManager(log_func=self.log)
+        self.file_system = FileSystem(log_func=self.log)
+        self.log("PerceptionModule initialized, integrating NetworkManager and FileSystem.")
+
+    def _default_log(self, message: str):
+        """Default logging function if none is provided."""
+        print(f"[PerceptionModule] {message}")
+
+    def read_local_file(self, filepath: str) -> Optional[str]:
+        """
+        Reads the content of a local file using the FileSystem utility.
+
+        Args:
+            filepath (str): The path to the local file.
+
+        Returns:
+            Optional[str]: The content of the file as a string, or None if an error occurred.
+        """
+        self.log(f"Attempting to read local file: {filepath}")
+        content = self.file_system.read_file(filepath)
+        if content:
+            self.log(f"Successfully read {len(content)} characters from {filepath}.")
+        else:
+            self.log(f"Failed to read local file: {filepath}.")
+        return content
+
+    def fetch_web_page(self, url: str, params: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None) -> Optional[str]:
+        """
+        Fetches the content of a web page using the NetworkManager.
+
+        Args:
+            url (str): The URL of the web page to fetch.
+            params (Optional[Dict[str, Any]]): Dictionary of URL parameters.
+            headers (Optional[Dict[str, str]]): Dictionary of HTTP headers.
+
+        Returns:
+            Optional[str]: The HTML content of the page as a string, or None if an error occurred.
+        """
+        self.log(f"Attempting to fetch web page: {url}")
+        content = self.network_manager.get(url, params=params, headers=headers)
+        if content:
+            self.log(f"Successfully fetched {len(content)} characters from {url}.")
+        else:
+            self.log(f"Failed to fetch web page: {url}.")
+        return content
+
+    def fetch_json_from_api(self, url: str, params: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None) -> Optional[Dict[str, Any]]:
+        """
+        Fetches JSON data from an API endpoint using the NetworkManager.
+
+        Args:
+            url (str): The URL of the API endpoint.
+            params (Optional[Dict[str, Any]]): Dictionary of URL parameters.
+            headers (Optional[Dict[str, str]]): Dictionary of HTTP headers.
+
+        Returns:
+            Optional[Dict[str, Any]]: The parsed JSON data as a dictionary, or None if an error occurred.
+        """
+        self.log(f"Attempting to fetch JSON from API: {url}")
+        json_data = self.network_manager.get_json(url, params=params, headers=headers)
+        if json_data:
+            self.log(f"Successfully fetched JSON from {url}.")
+        else:
+            self.log(f"Failed to fetch JSON from API: {url}.")
+        return json_data
+
+    # Future additions:
+    # - `search_files(pattern: str, directory: str) -> List[str]`: Find files matching a pattern.
+    # - `extract_text_from_html(html_content: str) -> str`: Basic HTML parsing.
+    # - `get_system_info() -> Dict[str, Any]`: Gather OS and hardware details (would use TaskExecutor).
+    # - `monitor_directory(dirpath: str, interval: int) -> Iterator[str]`: Real-time monitoring for changes.
+    # - `get_llm_model_status(model_name: str) -> Dict[str, Any]`: Query LLM provider for model status/usage.

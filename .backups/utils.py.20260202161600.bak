@@ -1,0 +1,205 @@
+import os
+import sys
+from typing import Callable, Optional, List, Dict, Any
+
+class FileSystem:
+    """
+    Provides robust file system operations for the Genesis Kernel.
+    This utility class handles reading, writing, deleting, and listing files
+    with basic safety checks and encoding handling.
+    """
+
+    def __init__(self, log_func: Optional[Callable[[str], None]] = None):
+        """
+        Initializes the FileSystem utility.
+
+        Args:
+            log_func (Optional[Callable[[str], None]]): A function to use for logging messages.
+                                                        If None, a default print-based logger is used.
+        """
+        self.log = log_func if log_func else self._default_log
+
+    def _default_log(self, message: str):
+        """Default logging function if none is provided."""
+        print(f"[FileSystem] {message}")
+
+    def read_file(self, filepath: str) -> Optional[str]:
+        """
+        Reads the content of a file.
+
+        Args:
+            filepath (str): The path to the file.
+
+        Returns:
+            Optional[str]: The content of the file, or None if an error occurred.
+        """
+        self.log(f"Reading file: {filepath}")
+        try:
+            # Attempt to detect encoding, defaulting to utf-8
+            with open(filepath, 'r', encoding='utf-8') as f:
+                content = f.read()
+            self.log(f"Successfully read {len(content)} characters from {filepath}.")
+            return content
+        except UnicodeDecodeError:
+            # Fallback to latin-1 if utf-8 fails (less strict)
+            self.log(f"Warning: UTF-8 decode failed for {filepath}, attempting latin-1.")
+            try:
+                with open(filepath, 'r', encoding='latin-1') as f:
+                    content = f.read()
+                return content
+            except Exception as e:
+                self.log(f"Failed to read file {filepath}: {e}")
+                return None
+        except FileNotFoundError:
+            self.log(f"File not found: {filepath}")
+            return None
+        except Exception as e:
+            self.log(f"Error reading file {filepath}: {e}")
+            return None
+
+    def write_file(self, filepath: str, content: str, mode: str = 'w', encoding: str = 'utf-8') -> bool:
+        """
+        Writes content to a file.
+
+        Args:
+            filepath (str): The path to the file.
+            content (str): The content to write.
+            mode (str): File open mode ('w' for write, 'a' for append). Defaults to 'w'.
+            encoding (str): File encoding. Defaults to 'utf-8'.
+
+        Returns:
+            bool: True if successful, False otherwise.
+        """
+        self.log(f"Writing to file: {filepath} (mode: {mode})")
+        try:
+            # Ensure directory exists
+            directory = os.path.dirname(filepath)
+            if directory and not os.path.exists(directory):
+                os.makedirs(directory, exist_ok=True)
+            
+            with open(filepath, mode, encoding=encoding) as f:
+                f.write(content)
+            self.log(f"Successfully wrote to {filepath}.")
+            return True
+        except Exception as e:
+            self.log(f"Failed to write to file {filepath}: {e}")
+            return False
+
+    def delete_file(self, filepath: str) -> bool:
+        """
+        Deletes a file.
+
+        Args:
+            filepath (str): The path to the file.
+
+        Returns:
+            bool: True if successful, False otherwise.
+        """
+        self.log(f"Deleting file: {filepath}")
+        try:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+                self.log(f"Successfully deleted {filepath}.")
+                return True
+            else:
+                self.log(f"File does not exist: {filepath}")
+                return False
+        except Exception as e:
+            self.log(f"Failed to delete file {filepath}: {e}")
+            return False
+
+    def list_files(self, directory: str, pattern: Optional[str] = None) -> List[str]:
+        """
+        Lists files in a directory.
+
+        Args:
+            directory (str): The path to the directory.
+            pattern (Optional[str]): A glob pattern to filter files (e.g., "*.py").
+
+        Returns:
+            List[str]: A list of filenames matching the criteria.
+        """
+        self.log(f"Listing files in directory: {directory}")
+        try:
+            if not os.path.exists(directory):
+                self.log(f"Directory does not exist: {directory}")
+                return []
+            
+            if pattern:
+                import glob
+                files = glob.glob(os.path.join(directory, pattern))
+            else:
+                files = os.listdir(directory)
+            
+            # Filter out directories if we only want files, or keep them
+            # For now, returning full paths
+            return [os.path.join(directory, f) for f in files]
+        except Exception as e:
+            self.log(f"Error listing directory {directory}: {e}")
+            return []
+
+    def create_directory(self, path: str) -> bool:
+        """
+        Creates a directory if it doesn't exist.
+
+        Args:
+            path (str): The path to the directory.
+
+        Returns:
+            bool: True if successful, False otherwise.
+        """
+        self.log(f"Ensuring directory exists: {path}")
+        try:
+            if not os.path.exists(path):
+                os.makedirs(path, exist_ok=True)
+                self.log(f"Created directory: {path}")
+            else:
+                self.log(f"Directory already exists: {path}")
+            return True
+        except Exception as e:
+            self.log(f"Failed to create directory {path}: {e}")
+            return False
+
+    def get_file_info(self, filepath: str) -> Optional[Dict[str, Any]]:
+        """
+        Gets metadata about a file.
+
+        Args:
+            filepath (str): The path to the file.
+
+        Returns:
+            Optional[Dict[str, Any]]: Dictionary containing size, mtime, etc., or None on error.
+        """
+        self.log(f"Getting info for: {filepath}")
+        try:
+            return {
+                "size": os.path.getsize(filepath),
+                "mtime": os.path.getmtime(filepath),
+                "is_dir": os.path.isdir(filepath)
+            }
+        except Exception as e:
+            self.log(f"Error getting info for {filepath}: {e}")
+            return None
+
+    def format_size(self, size_bytes: int) -> str:
+        """
+        Formats bytes into a human-readable string (KB, MB, GB).
+
+        Args:
+            size_bytes (int): Size in bytes.
+
+        Returns:
+            str: Formatted size string.
+        """
+        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+            if size_bytes < 1024.0:
+                return f"{size_bytes:.2f} {unit}"
+            size_bytes /= 1024.0
+        return f"{size_bytes:.2f} PB"
+
+# General utility functions
+def sanitize_path(path: str) -> str:
+    """
+    Basic sanitization to prevent directory traversal (../).
+    """
+    return os.path.normpath(path)

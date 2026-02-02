@@ -1,0 +1,66 @@
+import subprocess
+import shlex
+import logging
+from typing import Dict, Any, Tuple
+
+class TaskExecutor:
+    """
+    A safe wrapper for executing terminal commands within the Genesis OS.
+    Handles process lifecycle, output capture, and error reporting.
+    """
+    def __init__(self):
+        self.logger = logging.getLogger("GENESIS.OPERATOR")
+        self.logger.info("TaskExecutor initialized.")
+
+    def execute(self, command: str, timeout: int = 30) -> Dict[str, Any]:
+        """
+        Executes a shell command safely.
+        
+        Args:
+            command (str): The command string to execute.
+            timeout (int): Timeout in seconds for the command execution.
+            
+        Returns:
+            Dict: Contains 'success', 'stdout', 'stderr', and 'return_code'.
+        """
+        try:
+            # Use shlex.split to properly handle arguments without shell injection
+            args = shlex.split(command)
+            self.logger.info(f"Executing command: {command}")
+            
+            process = subprocess.Popen(
+                args,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            stdout, stderr = process.communicate(timeout=timeout)
+            
+            result = {
+                "success": process.returncode == 0,
+                "stdout": stdout,
+                "stderr": stderr,
+                "return_code": process.returncode
+            }
+            
+            self.logger.info(f"Command finished. Return code: {process.returncode}")
+            return result
+            
+        except subprocess.TimeoutExpired:
+            process.kill()
+            self.logger.error(f"Command timed out: {command}")
+            return {
+                "success": False,
+                "stdout": "",
+                "stderr": f"Command timed out after {timeout} seconds",
+                "return_code": -1
+            }
+        except Exception as e:
+            self.logger.error(f"Exception during execution: {e}")
+            return {
+                "success": False,
+                "stdout": "",
+                "stderr": str(e),
+                "return_code": -1
+            }

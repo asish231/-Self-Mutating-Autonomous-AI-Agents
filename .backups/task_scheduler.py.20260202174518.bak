@@ -1,0 +1,92 @@
+import threading
+import time
+import uuid
+from queue import PriorityQueue
+
+# Import dependencies that exist in the current architecture
+from modules.executor import Executor
+from modules.action import Action
+
+class Task:
+    """
+    Represents a unit of work to be processed by the OS.
+    """
+    def __init__(self, priority, target, args=None, kwargs=None, callback=None):
+        self.id = str(uuid.uuid4())
+        self.priority = priority
+        self.target = target
+        self.args = args or ()
+        self.kwargs = kwargs or {}
+        self.callback = callback
+        self.status = "pending"
+        self.result = None
+
+    def __lt__(self, other):
+        # PriorityQueue uses this for comparison
+        return self.priority < other.priority
+
+class TaskScheduler:
+    """
+    The kernel's process manager. Handles task queuing, prioritization,
+    and execution lifecycle.
+    """
+    def __init__(self):
+        self.queue = PriorityQueue()
+        self.lock = threading.Lock()
+        self.active = True
+        self.executor = None
+        self.thread = None
+
+    def set_executor(self, executor):
+        """Injects the executor to handle task logic."""
+        self.executor = executor
+
+    def schedule(self, priority, target, args=None, kwargs=None, callback=None):
+        """
+        Adds a task to the kernel queue.
+        :param priority: Integer priority (lower is higher priority).
+        :param target: Function to execute.
+        :param callback: Function to call after execution.
+        """
+        task = Task(priority, target, args, kwargs, callback)
+        with self.lock:
+            self.queue.put(task)
+        return task.id
+
+    def run(self):
+        """Starts the scheduler loop."""
+        self.thread = threading.Thread(target=self._loop, daemon=True)
+        self.thread.start()
+
+    def _loop(self):
+        """Internal loop that processes the queue."""
+        while self.active:
+            if not self.queue.empty():
+                try:
+                    task = self.queue.get_nowait()
+                    task.status = "running"
+                    
+                    # Execute the task via the executor
+                    if self.executor:
+                        # We pass the task result back if the target returns something
+                        task.result = self.executor.execute(task.target, *task.args, **task.kwargs)
+                    else:
+                        # Fallback if executor isn't set
+                        task.result = task.target(*task.args, **task.kwargs)
+
+                    if task.callback:
+                        task.callback(task.result)
+                    
+                    task.status = "completed"
+                except Exception as e:
+                    print(f"TaskScheduler Exception: {e}")
+                    if hasattr(task, 'status'):
+                        task.status = "error"
+            else:
+                time.sleep(0.01) # Sleep to prevent CPU spinning
+
+    def stop(self):
+        """Gracefully shuts down the scheduler."""
+        self.active = False
+        if self.thread:
+            self.thread.join()

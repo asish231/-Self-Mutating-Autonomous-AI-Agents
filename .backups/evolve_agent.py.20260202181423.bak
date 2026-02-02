@@ -1,0 +1,115 @@
+import os
+import sys
+import time
+import json
+import traceback
+import importlib.util
+from typing import List, Tuple, Optional
+
+# --- DEPENDENCIES ---
+try:
+    from google import genai
+    from zai import ZaiClient
+    # Import modular components
+    from modules.core import ModelClientManager
+    from modules.memory import MemoryManager
+    from modules.self_mutator import SelfMutator
+    from modules.planner import AgentPlanner
+    # Import Swarm components
+    from modules.firmware.hal import HAL
+    from modules.swarm.manager import SwarmManager
+except ImportError:
+    print("CRITICAL: Missing dependencies or modules.")
+    # In a real scenario we might re-run pip install or re-build modules
+    # For now, we assume the previous steps created them.
+    # We can try to install packages if it's a package error, but module error needs code fix.
+    os.system(f"{sys.executable} -m pip install google-genai zai-sdk")
+    sys.exit(1)
+
+
+# --- CONFIGURATION & CONSTANTS ---
+CONFIG_FILE = "config.json"
+# DB_FILE and MODULES_DIR are now managed by MemoryManager
+# Default Configuration
+DEFAULT_CONFIG = {
+    "api_keys": {
+        "gemini": "AIzaSyA1tG2cYU8paFveXfTv5GC39Mod6vUIFTc", # User provided
+        "zai": "af771f2849ec4e169a0fca07d951e10e.gmT5KGB7QFvmy527" # User provided
+    },
+    "models": {
+        "primary": "gemini-2.5-flash",
+        "secondary": "gemini-3-flash-preview",
+        "fallback": "glm-4.7-flash"
+    },
+    "provider_switch_threshold": 2  # Failures before switching
+}
+
+class GenesisKernel:
+    def __init__(self):
+        self.script_path = os.path.abspath(__file__)
+        self.root_dir = os.path.dirname(self.script_path)
+        self.log_file = os.path.join(self.root_dir, "agent_life.log")
+        
+        self.config = self._load_or_create_config()
+        self.client_manager = ModelClientManager(self.config, self.log)
+        self.memory_manager = MemoryManager(self.root_dir, self.log)
+        self.self_mutator = SelfMutator(self.root_dir, self.script_path, self.log)
+        self.planner = AgentPlanner(self.client_manager, self.log) # Initialized AgentPlanner
+        
+        # Initialize Firmware and Swarm
+        self.hal = HAL(self.log)
+        self.swarm = SwarmManager(self.hal, self.log)
+        
+        # Start Swarm
+        self.swarm.bootstrap()
+
+
+    def log(self, message: str):
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        entry = f"[{timestamp}] {message}"
+        print(entry)
+        with open(self.log_file, "a", encoding="utf-8") as f:
+            f.write(entry + "\n")
+
+    def _load_or_create_config(self) -> dict:
+        path = os.path.join(self.root_dir, CONFIG_FILE)
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                return json.load(f)
+        else:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(DEFAULT_CONFIG, f, indent=4)
+            return DEFAULT_CONFIG
+
+    def run_cycle(self):
+        self.log("--- Genesis Cycle Start (Swarm Enabled) ---")
+        
+        # 1. Update Context using MemoryManager
+        self.memory_manager.update_context_index()
+        context = self.memory_manager.get_system_context()
+        self.memory_manager.add_memory_event("Genesis cycle started.")
+
+        # 2. Decide Strategy (Architect) - now using AgentPlanner
+        system_prompt, user_prompt = self.planner.formulate_next_llm_query(context)
+        
+        try:
+            # We skip the specific 'directive' check logic for now as Planner handles it
+            response = self.client_manager.call(system_prompt, user_prompt)
+            self.self_mutator.apply_evolution(response)
+            self.memory_manager.add_memory_event("LLM responded and changes applied successfully.")
+        except Exception as e:
+            self.log(f"Cycle Error: {e}")
+            self.memory_manager.add_memory_event(f"Cycle failed: {e}")
+            time.sleep(10)
+
+if __name__ == "__main__":
+    kernel = GenesisKernel()
+    try:
+        while True:
+            kernel.run_cycle()
+            # SLOW DOWN to avoid Rate Limits (60s)
+            time.sleep(60) # Pause between cycles
+    except KeyboardInterrupt:
+        kernel.log("Kernel interrupted. Shutting down.")
+    finally:
+        kernel.memory_manager.close() # Ensure DB connection is closed on exit

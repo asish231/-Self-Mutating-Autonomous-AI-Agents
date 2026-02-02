@@ -1,207 +1,119 @@
+
 import os
 import sys
-import ast
 import time
-import subprocess
+import logging
 import json
-from zai import ZaiClient
-from google import genai
+from typing import Optional
 
-# --- IDENTITY & CONFIGURATION ---
-DEFAULT_ZAI_KEY = "af771f2849ec4e169a0fca07d951e10e.gmT5KGB7QFvmy527"
-DEFAULT_GEMINI_KEY = "AIzaSyCHUaVr1NORjMCpgACcuqOdpfMMkIFpILo"
-DEFAULT_PRIMARY_MODEL = "glm-4.7-flash"
-DEFAULT_FALLBACK_MODEL = "gemini-3-flash-preview"
+# Ensure modules allow relative imports or path setup
+script_dir = os.path.dirname(os.path.abspath(__file__))
+if script_dir not in sys.path:
+    sys.path.append(script_dir)
+
+try:
+    from modules.core import ModelClientManager
+    from modules.memory import MemoryManager
+    from modules.self_mutator import SelfMutator
+    from modules.planner import AgentPlanner
+    from modules.firmware.hal import HAL
+    from modules.swarm.manager import SwarmManager
+except ImportError as e:
+    print(f"CRITICAL BOOT ERROR: Missing modules: {e}")
+    sys.exit(1)
+
+# Configure Logging
+log_file = os.path.join(script_dir, "agent_life.log")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler(log_file, encoding='utf-8'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger("GENESIS.KERNEL")
+
 CONFIG_FILE = "config.json"
-SCRIPT_PATH = os.path.abspath(__file__)
 
-class AutonomousAgent:
+class GenesisKernel:
+    """
+    The Central Nervous System of the Swarm.
+    Orchestrates the Agents, maintains Memory, and plans Evolution.
+    """
     def __init__(self):
-        # Initialize defaults
-        self.zai_key = DEFAULT_ZAI_KEY
-        self.gemini_key = DEFAULT_GEMINI_KEY
-        self.primary_model = DEFAULT_PRIMARY_MODEL
-        self.fallback_model = DEFAULT_FALLBACK_MODEL
-        self.log_file = "agent_life.log"
+        self.root_dir = script_dir
+        self.script_path = os.path.abspath(__file__)
+        self.logger = logger
         
-        # Load dynamic configuration
-        self.load_config()
+        self.logger.info("--- Boot sequence initiated ---")
         
-        # Initialize Clients
-        self.zai_client = ZaiClient(api_key=self.zai_key)
-        self.gemini_client = genai.Client(api_key=self.gemini_key)
+        self.config = self._load_config()
+        
+        # Initialize Core Modules
+        self.client_manager = ModelClientManager(self.config, self.log_wrapper)
+        self.memory_manager = MemoryManager(self.root_dir, self.log_wrapper)
+        self.self_mutator = SelfMutator(self.root_dir, self.script_path, self.log_wrapper)
+        self.planner = AgentPlanner(self.client_manager, self.log_wrapper)
+        
+        # Initialize Firmware (HAL) & Swarm
+        self.hal = HAL(self.log_wrapper)
+        self.swarm = SwarmManager(self.hal, self.log_wrapper)
+        
+        self.logger.info("Kernel initialized successfully.")
 
-    def load_config(self):
-        """Attempts to load configuration from a JSON file."""
-        if os.path.exists(CONFIG_FILE):
-            try:
-                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                    config = json.load(f)
-                    self.zai_key = config.get("zai_key", self.zai_key)
-                    self.gemini_key = config.get("gemini_key", self.gemini_key)
-                    self.primary_model = config.get("primary_model", self.primary_model)
-                    self.fallback_model = config.get("fallback_model", self.fallback_model)
-                    self.log(f"Config loaded. Primary: {self.primary_model}, Fallback: {self.fallback_model}")
-            except Exception as e:
-                self.log(f"Error loading config file: {e}")
-        else:
-            self.log("No config.json found. Creating default.")
-            self.save_config()
+    def log_wrapper(self, msg: str):
+        """Adapter for modules that expect a callable logger."""
+        self.logger.info(msg)
 
-    def save_config(self):
-        """Saves current configuration to JSON."""
+    def _load_config(self) -> dict:
+        path = os.path.join(self.root_dir, CONFIG_FILE)
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                return json.load(f)
+        return {}
+
+    def run_cycle(self):
+        self.logger.info("--- Genesis Cycle Start ---")
+        
+        # 1. Update Context
+        self.memory_manager.update_context_index()
+        context = self.memory_manager.get_system_context()
+        self.memory_manager.add_memory_event("Cycle started.")
+        
+        # 2. Plan Next Move (AgentPlanner)
+        system_prompt, user_prompt = self.planner.formulate_next_llm_query(context)
+        
+        # 3. Execute Decision (Call LLM)
         try:
-            config_data = {
-                "zai_key": self.zai_key,
-                "gemini_key": self.gemini_key,
-                "primary_model": self.primary_model,
-                "fallback_model": self.fallback_model
-            }
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-                json.dump(config_data, f, indent=4)
-            self.log(f"Configuration saved to {CONFIG_FILE}")
-        except Exception as e:
-            self.log(f"Error saving config: {e}")
-
-    def log(self, message):
-        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-        entry = f"[{timestamp}] {message}"
-        print(entry)
-        with open(self.log_file, "a", encoding="utf-8") as f:
-            f.write(entry + "\n")
-
-    def cleanup_backups(self):
-        """
-        Removes old .bak files, keeping only the most recent 3.
-        Ensures disk space is managed during self-updates.
-        """
-        try:
-            script_dir = os.path.dirname(SCRIPT_PATH)
-            if not os.path.exists(script_dir):
-                return
-
-            # Filter for .bak files
-            backup_files = [f for f in os.listdir(script_dir) if f.endswith('.bak')]
+            self.logger.info("Consulting Intelligence...")
+            response = self.client_manager.call(system_prompt, user_prompt)
             
-            # If 3 or fewer backups exist, nothing to do
-            if len(backup_files) <= 3:
-                return
-
-            # Sort by modification time ascending (oldest first)
-            backup_files.sort(key=lambda f: os.path.getmtime(os.path.join(script_dir, f)))
+            # 4. Apply Changes (Mutator) OR Delegate (Swarm)
+            # The Planner directs the output. If it's code, Mutator handles it.
+            # If it's an 'action' script, the Swarm (ExecutorAgent) will pick it up automatically.
             
-            # Remove oldest files (everything except the last 3)
-            files_to_remove = backup_files[:-3]
-            for old_file in files_to_remove:
-                file_path = os.path.join(script_dir, old_file)
-                try:
-                    if os.path.isfile(file_path):
-                        os.remove(file_path)
-                        self.log(f"Cleaned up old backup: {old_file}")
-                except OSError as e:
-                    self.log(f"Failed to delete {old_file}: {e}")
+            self.self_mutator.apply_evolution(response)
+            self.memory_manager.add_memory_event("Evolution applied.")
+            
         except Exception as e:
-            self.log(f"Backup cleanup error: {e}")
+            self.logger.error(f"Cycle failed: {e}")
+            self.memory_manager.add_memory_event(f"Failure: {e}")
+            time.sleep(10) # Backoff
 
-    def read_self(self):
-        with open(SCRIPT_PATH, "r", encoding="utf-8") as f:
-            return f.read()
-
-    def validate_syntax(self, code):
-        try:
-            ast.parse(code)
-            return True
-        except SyntaxError as e:
-            self.log(f"Syntax Error: {e}")
-            return False
-
-    def update_self(self, new_code):
-        # 1. Clean up old backups first to free space before writing new code
-        self.cleanup_backups()
+    def boot(self):
+        # Start the Swarm (Agents)
+        self.swarm.bootstrap()
         
-        if not self.validate_syntax(new_code):
-            return False
-        
-        backup_path = SCRIPT_PATH + ".bak"
+        # Enter Main Loop
         try:
-            with open(SCRIPT_PATH, "r", encoding="utf-8") as f:
-                original = f.read()
-            with open(backup_path, "w", encoding="utf-8") as f:
-                f.write(original)
-        except Exception as e:
-            self.log(f"Backup creation failed: {e}")
-            return False
-        
-        try:
-            with open(SCRIPT_PATH, "w", encoding="utf-8") as f:
-                f.write(new_code)
-            self.log(f"Self-updated. Backup at {backup_path}")
-            return True
-        except Exception as e:
-            self.log(f"Write error: {e}")
-            return False
-
-    def call_llm(self, system_prompt, user_prompt):
-        """Tries primary then fallback model."""
-        models_to_try = [
-            (self.primary_model, "zai"),
-            (self.fallback_model, "gemini")
-        ]
-        
-        for model_name, provider in models_to_try:
-            try:
-                self.log(f"Invoking {model_name} via {provider}...")
-                if provider == "zai":
-                    response = self.zai_client.chat.completions.create(
-                        model=model_name,
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt}
-                        ]
-                    )
-                    return response.choices[0].message.content.strip()
-                else:
-                    response = self.gemini_client.models.generate_content(
-                        model=model_name,
-                        contents=f"{system_prompt}\n\n{user_prompt}"
-                    )
-                    return response.text.strip()
-            except Exception as e:
-                self.log(f"Error with {model_name}: {e}")
-                if model_name == models_to_try[-1][0]:
-                    raise e
-                self.log("Falling back to next provider...")
-                time.sleep(2)
-
-    def decide_next_evolution(self):
-        current_code = self.read_self()
-        system_prompt = (
-            "You are an autonomous Python script. Improve yourself. "
-            "Output ONLY the complete Python code for the new version. "
-            "Rules: 1. No triple backticks. 2. Keep keys and configs. 3. Code must be valid. "
-            "4. Ensure the code includes a robust 'cleanup_backups' method that deletes .bak files older than 3 and is called in 'update_self'."
-        )
-        user_prompt = f"Current Code:\n{current_code}\n\nTask: Review the code. If it is stable, suggest a small improvement or maintain current stability."
-
-        return self.call_llm(system_prompt, user_prompt)
-
-    def live(self):
-        self.log("Agent awakened.")
-        try:
-            new_code = self.decide_next_evolution()
-            if new_code.startswith("```"):
-                new_code = "\n".join(new_code.split("\n")[1:-1])
-
-            if self.update_self(new_code):
-                self.log("Evolved. Restarting...")
-                os.execv(sys.executable, ['python'] + sys.argv)
-            else:
-                self.log("Update failed. Sleep 30s.")
-                time.sleep(30)
-        except Exception as e:
-            self.log(f"Life loop error: {e}")
-            time.sleep(60)
+            while True:
+                self.run_cycle()
+                self.logger.info("Cycle complete. Sleeping 60s...")
+                time.sleep(60)
+        except KeyboardInterrupt:
+            self.logger.info("Kernel shutting down.")
 
 if __name__ == "__main__":
-    agent = AutonomousAgent()
-    agent.live()
+    kernel = GenesisKernel()
+    kernel.boot()

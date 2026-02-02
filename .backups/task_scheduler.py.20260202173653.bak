@@ -1,0 +1,87 @@
+import time
+import threading
+from queue import PriorityQueue
+from typing import Callable, Any, Optional
+
+class TaskScheduler:
+    """
+    The GENESIS KERNEL Task Scheduler.
+    Responsible for prioritizing, queuing, and dispatching tasks to the Executor.
+    This component is critical for the OS to manage concurrency and timing.
+    """
+    
+    def __init__(self, executor):
+        self.executor = executor
+        self.queue = PriorityQueue()
+        self.is_running = False
+        self.thread = None
+        self.task_counter = 0
+
+    def schedule_task(self, func: Callable, args: tuple = (), kwargs: dict = None, priority: int = 5) -> str:
+        """
+        Schedules a function to be executed.
+        
+        :param func: The callable to execute.
+        :param args: Positional arguments for the function.
+        :param kwargs: Keyword arguments for the function.
+        :param priority: Lower number = higher priority. (Standard OS scheduler logic).
+        :return: Task ID.
+        """
+        if kwargs is None:
+            kwargs = {}
+            
+        self.task_counter += 1
+        task_id = f"task_{self.task_counter}"
+        
+        task = {
+            'id': task_id,
+            'func': func,
+            'args': args,
+            'kwargs': kwargs,
+            'priority': priority,
+            'created_at': time.time()
+        }
+        
+        self.queue.put(task)
+        return task_id
+
+    def run(self):
+        """
+        Starts the scheduler loop in a separate thread.
+        """
+        if self.is_running:
+            return
+        
+        self.is_running = True
+        self.thread = threading.Thread(target=self._scheduler_loop, daemon=True)
+        self.thread.start()
+
+    def stop(self):
+        """
+        Stops the scheduler loop gracefully.
+        """
+        self.is_running = False
+        if self.thread:
+            self.thread.join(timeout=2)
+
+    def _scheduler_loop(self):
+        """
+        Internal loop that continuously checks the priority queue.
+        """
+        while self.is_running:
+            try:
+                # Get the highest priority task (non-blocking with timeout)
+                task = self.queue.get(timeout=0.1)
+                
+                # Execute the task via the executor
+                self.executor.execute(task['func'], task['args'], task['kwargs'])
+                
+                # Mark task as done
+                self.queue.task_done()
+                
+            except Exception as e:
+                # Log error or handle specific queue timeout
+                continue
+
+    def get_queue_size(self) -> int:
+        return self.queue.qsize()

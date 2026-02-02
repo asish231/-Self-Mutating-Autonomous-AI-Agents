@@ -1,0 +1,185 @@
+import os
+import sys
+import json
+import time
+from typing import Callable, Optional, List, Dict, Any
+
+class FileSystem:
+    """
+    Provides utility functions for file system operations.
+    Centralizes read, write, delete, and existence checks to reduce
+    code duplication across modules.
+    """
+
+    def __init__(self, log_func: Optional[Callable[[str], None]] = None):
+        """
+        Initializes the FileSystem utility.
+
+        Args:
+            log_func (Optional[Callable[[str], None]]): A function to use for logging messages.
+                                                        If None, a default print-based logger is used.
+        """
+        self.log = log_func if log_func else self._default_log
+
+    def _default_log(self, message: str):
+        """Default logging function if none is provided."""
+        print(f"[FileSystem] {message}")
+
+    def read_file(self, filepath: str) -> Optional[str]:
+        """
+        Reads the content of a file.
+
+        Args:
+            filepath (str): The path to the file.
+
+        Returns:
+            Optional[str]: The content of the file as a string, or None if an error occurred.
+        """
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                return f.read()
+        except FileNotFoundError:
+            self.log(f"File not found: {filepath}")
+            return None
+        except PermissionError:
+            self.log(f"Permission denied reading: {filepath}")
+            return None
+        except Exception as e:
+            self.log(f"Error reading file {filepath}: {e}")
+            return None
+
+    def write_file(self, filepath: str, content: str, mode: str = "w") -> bool:
+        """
+        Writes content to a file.
+
+        Args:
+            filepath (str): The path to the file.
+            content (str): The content to write.
+            mode (str): File mode ('w' for overwrite, 'a' for append).
+
+        Returns:
+            bool: True if successful, False otherwise.
+        """
+        try:
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            with open(filepath, mode, encoding="utf-8") as f:
+                f.write(content)
+            return True
+        except Exception as e:
+            self.log(f"Error writing to file {filepath}: {e}")
+            return False
+
+    def delete_file(self, filepath: str) -> bool:
+        """
+        Deletes a file.
+
+        Args:
+            filepath (str): The path to the file.
+
+        Returns:
+            bool: True if successful, False otherwise.
+        """
+        try:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+                self.log(f"Deleted file: {filepath}")
+                return True
+            else:
+                self.log(f"File not found for deletion: {filepath}")
+                return False
+        except Exception as e:
+            self.log(f"Error deleting file {filepath}: {e}")
+            return False
+
+    def file_exists(self, filepath: str) -> bool:
+        """
+        Checks if a file exists.
+
+        Args:
+            filepath (str): The path to the file.
+
+        Returns:
+            bool: True if exists, False otherwise.
+        """
+        return os.path.exists(filepath)
+
+    def list_files(self, directory: str, extension: Optional[str] = None) -> List[str]:
+        """
+        Lists files in a directory.
+
+        Args:
+            directory (str): The path to the directory.
+            extension (Optional[str]): Filter files by extension (e.g., '.py').
+
+        Returns:
+            List[str]: List of file paths.
+        """
+        files = []
+        try:
+            for filename in os.listdir(directory):
+                full_path = os.path.join(directory, filename)
+                if os.path.isfile(full_path):
+                    if extension is None or filename.endswith(extension):
+                        files.append(full_path)
+        except Exception as e:
+            self.log(f"Error listing files in {directory}: {e}")
+        return files
+
+    def get_file_size(self, filepath: str) -> Optional[int]:
+        """
+        Gets the size of a file in bytes.
+
+        Args:
+            filepath (str): The path to the file.
+
+        Returns:
+            Optional[int]: Size in bytes, or None if error.
+        """
+        try:
+            return os.path.getsize(filepath)
+        except Exception as e:
+            self.log(f"Error getting file size for {filepath}: {e}")
+            return None
+
+def get_os_info() -> Dict[str, str]:
+    """
+    Gathers basic operating system information.
+
+    Returns:
+        Dict[str, str]: Dictionary containing OS details.
+    """
+    info = {
+        "platform": sys.platform,
+        "python_version": sys.version.split()[0],
+        "hostname": os.uname().nodename if hasattr(os, 'uname') else "Unknown",
+        "cwd": os.getcwd()
+    }
+    return info
+
+def safe_json_loads(data: str) -> Optional[Dict]:
+    """
+    Safely parses a JSON string.
+
+    Args:
+        data (str): The JSON string.
+
+    Returns:
+        Optional[Dict]: Parsed dictionary or None if invalid.
+    """
+    try:
+        return json.loads(data)
+    except json.JSONDecodeError:
+        return None
+
+def format_timestamp(seconds: float) -> str:
+    """
+    Formats a timestamp (seconds since epoch) into a readable string.
+
+    Args:
+        seconds (float): Unix timestamp.
+
+    Returns:
+        str: Formatted date string.
+    """
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(seconds))

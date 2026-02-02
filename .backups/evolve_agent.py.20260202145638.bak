@@ -1,0 +1,157 @@
+import os
+import sys
+import time
+import json
+import traceback
+import importlib.util
+from typing import List, Tuple, Optional
+
+# --- DEPENDENCIES ---
+try:
+    from google import genai
+    from zai import ZaiClient
+    # Import modular components
+    from modules.core import ModelClientManager
+    from modules.memory import MemoryManager # Added MemoryManager import
+except ImportError:
+    print("CRITICAL: Missing dependencies. Installing...")
+    os.system(f"{sys.executable} -m pip install google-genai zai-sdk")
+    from google import genai
+    from zai import ZaiClient
+    # After install, attempt to import modular components again
+    try:
+        from modules.core import ModelClientManager
+        from modules.memory import MemoryManager # Added MemoryManager import
+    except ImportError as e:
+        print(f"CRITICAL: Could not import core modules: {e}. Is the 'modules' directory correctly structured?")
+        sys.exit(1)
+
+
+# --- CONFIGURATION & CONSTANTS ---
+CONFIG_FILE = "config.json"
+# DB_FILE and MODULES_DIR are now managed by MemoryManager
+# Default Configuration
+DEFAULT_CONFIG = {
+    "api_keys": {
+        "gemini": "AIzaSyA1tG2cYU8paFveXfTv5GC39Mod6vUIFTc", # User provided
+        "zai": "af771f2849ec4e169a0fca07d951e10e.gmT5KGB7QFvmy527" # User provided
+    },
+    "models": {
+        "primary": "gemini-2.5-flash",
+        "secondary": "gemini-3-flash-preview",
+        "fallback": "glm-4.7-flash"
+    },
+    "provider_switch_threshold": 2  # Failures before switching
+}
+
+class GenesisKernel:
+    def __init__(self):
+        self.script_path = os.path.abspath(__file__)
+        self.root_dir = os.path.dirname(self.script_path)
+        self.log_file = os.path.join(self.root_dir, "agent_life.log")
+        
+        self.config = self._load_or_create_config()
+        self.client_manager = ModelClientManager(self.config, self.log)
+        self.memory_manager = MemoryManager(self.root_dir, self.log) # Initialized MemoryManager
+
+
+    def log(self, message: str):
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        entry = f"[{timestamp}] {message}"
+        print(entry)
+        with open(self.log_file, "a", encoding="utf-8") as f:
+            f.write(entry + "\n")
+
+    def _load_or_create_config(self) -> dict:
+        path = os.path.join(self.root_dir, CONFIG_FILE)
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                return json.load(f)
+        else:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(DEFAULT_CONFIG, f, indent=4)
+            return DEFAULT_CONFIG
+
+    # Removed _init_db, _update_context_index, _get_full_context as they are now handled by MemoryManager
+
+    def run_cycle(self):
+        self.log("--- Genesis Cycle Start ---")
+        
+        # 1. Update Context using MemoryManager
+        self.memory_manager.update_context_index()
+        context = self.memory_manager.get_system_context()
+        self.memory_manager.add_memory_event("Genesis cycle started.")
+
+        # 2. Decide Strategy (Architect)
+        system_prompt = (
+            "You are the GENESIS KERNEL. You are an autonomous AI Architect. "
+            "Your goal is to build a high-capability AI Operating System from scratch. "
+            "You are currently running as a bootstrap script. "
+            "You must:\n"
+            "1. Analyze the current file structure (provided in Context).\n"
+            "2. Decide the NEXT CRITICAL FILE to create or update to advance the architecture.\n"
+            "3. If the 'modules' folder is empty/missing, you MUST START by creating 'modules/core.py' or 'modules/utils.py'.\n"
+            "4. Output valid Python code for ONE file update/creation.\n\n"
+            "Response Format:\n"
+            "FILENAME: modules/example_name.py\n"
+            "CODE:\n"
+            "import ...\n"
+            "..."
+        )
+        user_prompt = f"Current System Context:\n{context}\n\nTask: Architect the next step. Create the file structure."
+        
+        try:
+            response = self.client_manager.call(system_prompt, user_prompt)
+            self._apply_changes(response)
+            self.memory_manager.add_memory_event("LLM responded and changes applied successfully.")
+        except Exception as e:
+            self.log(f"Cycle Error: {e}")
+            self.memory_manager.add_memory_event(f"Cycle failed: {e}")
+            time.sleep(10)
+
+    def _apply_changes(self, llm_response: str):
+        """Parses LLM response and writes file."""
+        try:
+            lines = llm_response.split('\n')
+            filename = None
+            code_lines = []
+            parsing_code = False
+            
+            for line in lines:
+                if line.startswith("FILENAME:"):
+                    filename = line.split("FILENAME:")[1].strip()
+                elif line.strip() == "CODE:":
+                    parsing_code = True
+                elif parsing_code:
+                    if line.strip() == "```": continue # Skip markdown code blocks if agent adds them
+                    code_lines.append(line)
+            
+            if filename and code_lines:
+                full_path = os.path.join(self.root_dir, filename)
+                os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                
+                with open(full_path, "w", encoding="utf-8") as f:
+                    f.write("\n".join(code_lines))
+                
+                self.log(f"Genesis created/updated: {filename}")
+                self.memory_manager.add_memory_event(f"File created/updated: {filename}")
+                
+                # If we updated THIS script, restart. If new module, just continue (next cycle will use it)
+                if filename == os.path.basename(self.script_path):
+                     self.log("Kernel updated. Restarting...")
+                     os.execv(sys.executable, ['python'] + sys.argv)
+                     
+        except Exception as e:
+            self.log(f"Failed to apply changes: {e}")
+            self.memory_manager.add_memory_event(f"Failed to apply changes from LLM response: {e}")
+
+if __name__ == "__main__":
+    kernel = GenesisKernel()
+    try:
+        while True:
+            kernel.run_cycle()
+            time.sleep(5) # Pause between cycles
+    except KeyboardInterrupt:
+        kernel.log("Kernel interrupted. Shutting down.")
+    finally:
+        kernel.memory_manager.close() # Ensure DB connection is closed on exit

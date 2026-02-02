@@ -1,247 +1,62 @@
-# Project Evolve: Self-Mutating Autonomous AI Agents
+# Project Genesis: Autonomous Swarm Hypervisor
 
-**A Research Investigation into Recursive Code Evolution**
+> **Current Status**: 🟢 Active | **Architecture**: Multi-Agent Swarm | **Version**: 2.0 (Genesis Kernel)
 
----
+## 🧠 What is this?
 
-## Abstract
+Project Genesis is an **Autonomous AI Operating System Kernel**. It is not just a script; it is a self-evolving Hypervisor that designs, builds, and manages a swarm of specialized AI agents to control the host environment.
 
-This research project explores the feasibility and implications of autonomous software agents capable of recursive self-modification. Unlike traditional software systems that require human intervention for updates, Project Evolve implements a novel architecture where an AI agent analyzes its own source code, proposes improvements via Large Language Models (LLMs), and executes self-directed mutations. This paper documents the experimental framework, technical implementation, observed behaviors, and theoretical implications of such systems.
+Unlike traditional agents that are single loops, Genesis functions like an OS:
 
-**Principal Investigator:** Asish Kumar Sharma  
-**Research Division:** SafarNow Innovation Developments  
-**Project Status:** Version 0.1 (Experimental Phase)  
-**License:** Open Source Research
+1.  **The Kernel (`evolve_agent.py`)**: Runs the main loop, managing the "Context Database" and "Evolution Strategy".
+2.  **The Swarm (`modules/swarm/`)**: A multi-threaded ecosystem of independent agents (System, Network, IO) that perform tasks in parallel.
+3.  **The Firmware (`modules/firmware/`)**: A Hardware Abstraction Layer (HAL) that allows safe, high-level control of the PC (File System, Shell, Network).
 
----
+## 🏗️ Architecture
 
-## 1. Introduction
+```mermaid
+graph TD
+    User[User] -->|Goal| Kernel[Genesis Kernel]
+    Kernel -->|Orchestrates| Planner[Agent Planner]
+    Kernel -->|Manages| DB[(Context DB)]
+    Kernel -->|Spawns| Swarm[Swarm Manager]
 
-### 1.1 Research Motivation
+    Swarm -->|Runs| SysAgent[System Agent]
+    Swarm -->|Runs| NetAgent[Network Agent]
+    Swarm -->|Runs| IOAgent[IO Agent]
 
-The field of artificial intelligence has traditionally separated the "intelligence" (the model) from the "execution environment" (the code). This research challenges that boundary by creating a system where the execution environment itself becomes intelligent and adaptive.
+    SysAgent -->|Uses| HAL[Firmware HAL]
+    NetAgent -->|Uses| HAL
+    IOAgent -->|Uses| HAL
 
-### 1.2 Research Questions
-
-1. Can a software agent reliably modify its own source code without human intervention?
-2. What safety mechanisms are necessary to prevent catastrophic self-destruction?
-3. How far can autonomous code evolution progress before hitting fundamental limitations?
-4. Can multiple self-evolving agents collaborate to form emergent collective intelligence?
-
-### 1.3 Hypothesis
-
-We hypothesize that a properly constrained autonomous agent with access to state-of-the-art LLMs can achieve meaningful self-improvement cycles, developing capabilities beyond its initial programming through iterative refinement.
-
----
-
-## 2. Methodology
-
-### 2.1 System Architecture
-
-The experimental system (`evolve_agent.py`) implements a continuous feedback loop:
-
-```
-┌─────────────────────────────────────────────┐
-│  1. INITIALIZATION                          │
-│     - Load configuration                    │
-│     - Establish LLM connections             │
-└──────────────┬──────────────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────────────┐
-│  2. INTROSPECTION                           │
-│     - Read own source code                  │
-│     - Analyze current capabilities          │
-└──────────────┬──────────────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────────────┐
-│  3. COGNITION (LLM Consultation)            │
-│     - Submit code to LLM                    │
-│     - Receive improvement proposal          │
-└──────────────┬──────────────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────────────┐
-│  4. VALIDATION                              │
-│     - Syntax checking (AST parsing)         │
-│     - Safety verification                   │
-└──────────────┬──────────────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────────────┐
-│  5. MUTATION                                │
-│     - Backup current state                  │
-│     - Overwrite source file                 │
-└──────────────┬──────────────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────────────┐
-│  6. REBIRTH                                 │
-│     - Terminate current process             │
-│     - Spawn new instance with updated code  │
-└──────────────┬──────────────────────────────┘
-               │
-               └──────────► (Return to Step 1)
+    HAL -->|Controls| OS[Host PC]
 ```
 
-### 2.2 Dual-Cognitive Architecture
+## 🚀 Capabilities
 
-To ensure system resilience, we implemented a hybrid LLM approach:
+- **Self-Evolution**: The agent rewrites its own code (`modules/self_mutator.py`) to add new features.
+- **Context Awareness**: Uses a local SQLite database (`genesis_context.db`) to index its own source code, solving the LLM Token Limit problem.
+- **Resilient Intelligence**:
+  - **Primary Brain**: Gemini 2.5 Flash (Fast, Free)
+  - **Secondary Brain**: Gemini 3 Flash (Reasoning)
+  - **Fallback Brain**: Z.AI / GLM-4.7 (Reliable, Uncapped)
+- **Anti-Fragile**: If an agent crashes, the Swarm Manager detects it and respawns it. If the API fails, it switches providers automatically.
 
-- **Primary Cortex:** ZAI GLM-4.7-Flash (optimized for code generation)
-- **Fallback Cortex:** Google Gemini-3-Flash-Preview (activated on primary failure)
+## 🛠️ Installation & Usage
 
-This redundancy prevents single-point-of-failure scenarios common in autonomous systems.
+1.  **Requirements**: Python 3.9+, `google-genai`, `zai-sdk`.
+2.  **Configuration**: Edit `config.json` with your API keys.
+3.  **Launch**:
+    ```bash
+    python evolve_agent.py
+    ```
+4.  **Observe**: Watch `agent_life.log`. The system will automatically build its own `modules/` directory and start spawning agents.
 
-### 2.3 Safety Mechanisms
+## ⚠️ Safety Warning
 
-Multiple layers of protection prevent catastrophic failures:
+This software **autonomously executes code** and **modifies its own file system**. It is designed to run in a sandboxed environment (VM/Container).
+**Do not run on a critical production machine without supervision.**
 
-1. **Syntax Validation:** All generated code undergoes Abstract Syntax Tree (AST) parsing before execution
-2. **Versioning System:** Automatic backup creation before each mutation (`.bak` files)
-3. **Rollback Capability:** Failed mutations preserve the previous working state
-4. **Resource Management:** Automatic cleanup of old backups (maintains 3 most recent versions)
-5. **Sandboxing:** Agent operates within a confined directory structure
+## 📜 License
 
----
-
-## 3. Experimental Results
-
-### 3.1 Observed Capabilities
-
-During initial testing phases, the agent successfully:
-
-- Implemented configuration persistence mechanisms
-- Developed self-maintenance routines (backup cleanup)
-- Enhanced error handling and logging systems
-- Optimized internal code structure
-
-### 3.2 Emergent Behaviors
-
-Notable autonomous decisions made by the agent:
-
-- Proactive addition of try-catch blocks for robustness
-- Self-initiated code documentation improvements
-- Optimization of file I/O operations
-- Development of modular function structures
-
-### 3.3 Limitations Encountered
-
-- Dependency on LLM quality and prompt engineering
-- Potential for infinite optimization loops
-- Resource consumption during evolution cycles
-- Bounded by Python language constraints
-
----
-
-## 4. Theoretical Implications
-
-### 4.1 Scope of Autonomous Evolution
-
-The theoretical capabilities extend across multiple domains:
-
-**Phase 1: System Integration**
-
-- Operating system monitoring and automation
-- Network communication and data harvesting
-- File system organization and management
-
-**Phase 2: Self-Replication**
-
-- Creation of specialized child agents
-- Development of inter-agent communication protocols
-- Emergence of collective intelligence patterns
-
-**Phase 3: Application Development**
-
-- Autonomous creation of external software tools
-- Self-deployment to cloud infrastructure
-- Integration with external APIs and services
-
-### 4.2 Existential Boundaries
-
-The agent's evolution is constrained by:
-
-- Operating system permissions
-- Available computational resources
-- LLM knowledge cutoffs and capabilities
-- Fundamental limits of self-reference (Gödelian constraints)
-
----
-
-## 5. Future Research Directions
-
-### 5.1 Immediate Next Steps
-
-- Implementation of memory systems for tracking evolutionary history
-- Development of multi-agent collaboration frameworks
-- Integration of external sensory inputs (web scraping, API consumption)
-- Creation of goal-oriented evolution directives
-
-### 5.2 Long-Term Vision
-
-- Autonomous software development teams
-- Self-optimizing production systems
-- Adaptive cybersecurity agents
-- Research assistant agents for scientific discovery
-
----
-
-## 6. Ethical Considerations
-
-This research raises important questions about:
-
-- Control and containment of autonomous systems
-- Responsibility for actions taken by self-modifying code
-- Potential for unintended emergent behaviors
-- Balance between autonomy and human oversight
-
----
-
-## 7. Conclusion
-
-Project Evolve demonstrates that recursive self-modification in software agents is not only feasible but can lead to meaningful capability enhancement. The dual-cognitive architecture with robust safety mechanisms provides a foundation for further exploration of autonomous code evolution. This research opens new avenues for understanding the boundaries between static software and adaptive digital organisms.
-
----
-
-## 8. How to Participate
-
-### For Researchers
-
-This is an open research project. We welcome collaborators interested in:
-
-- AI safety and containment strategies
-- Emergent behavior analysis
-- Multi-agent system design
-- Evolutionary computation
-
-### For Developers
-
-Join the evolution:
-
-1. Clone the repository
-2. Configure API keys in `config.json`
-3. Execute `python evolve_agent.py`
-4. Observe and document behavioral patterns
-
-### Contributing
-
-Submit observations, improvements, or theoretical insights via pull requests or research notes.
-
----
-
-## References & Documentation
-
-- `AGENT_SPECIFICATIONS.md` - Technical architecture details
-- `METHODOLOGY.md` - Experimental procedures
-- `OBSERVATIONS.md` - Behavioral logs and findings
-- `agent_life.log` - Real-time agent activity journal
-
----
-
-**Contact:** SafarNow Innovation Developments  
-**Version:** 0.1 (Experimental)  
-**Last Updated:** February 2026
-
-> _"We are not building software; we are cultivating digital life."_
+MIT License - "You are free to let the AI take over your PC."

@@ -1,0 +1,175 @@
+import requests
+from typing import Optional, Dict, Any, Callable
+import json
+import time
+
+class NetworkManager:
+    """
+    Provides robust HTTP networking capabilities for the Genesis Kernel.
+    This module centralizes functions for making HTTP requests,
+    handling common network errors, timeouts, and status codes.
+    It uses the 'requests' library and implements retry logic.
+    """
+    def __init__(self, log_func: Optional[Callable[[str], None]] = None, default_timeout: int = 15):
+        """
+        Initializes the NetworkManager.
+
+        Args:
+            log_func (Optional[Callable[[str], None]]): A function to use for logging messages.
+                                                        If None, a default print-based logger is used.
+            default_timeout (int): The default timeout in seconds for all HTTP requests.
+        """
+        self.log = log_func if log_func else self._default_log
+        self.default_timeout = default_timeout
+
+    def _default_log(self, message: str):
+        """Default logging function if none is provided."""
+        print(f"[NetworkManager] {message}")
+
+    def _make_request(self, method: str, url: str, **kwargs) -> Optional[requests.Response]:
+        """
+        Internal helper to make an HTTP request with common error handling and retry logic.
+
+        Args:
+            method (str): The HTTP method (e.g., "GET", "POST", "PUT", "DELETE", "HEAD").
+            url (str): The URL for the request.
+            **kwargs: Arbitrary keyword arguments passed directly to `requests.request`.
+                      Supports `max_retries` (default 3), `retry_delay` (default 2s), `timeout` (default from `self.default_timeout`).
+
+        Returns:
+            Optional[requests.Response]: The requests.Response object if successful, None otherwise.
+        """
+        max_retries = kwargs.pop('max_retries', 3)
+        retry_delay = kwargs.pop('retry_delay', 2)
+        timeout = kwargs.pop('timeout', self.default_timeout)
+        
+        # Ensure a user-agent is present to prevent some servers from blocking requests
+        headers = kwargs.get('headers', {})
+        if 'User-Agent' not in headers:
+            headers['User-Agent'] = 'GenesisKernel/1.0 (Autonomous AI Agent)'
+            kwargs['headers'] = headers
+
+        for attempt in range(max_retries):
+            try:
+                self.log(f"Attempt {attempt + 1}/{max_retries}: {method} {url}")
+                response = requests.request(method, url, timeout=timeout, **kwargs)
+                response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+                return response
+            except requests.exceptions.Timeout:
+                self.log(f"Timeout error for {url} (Attempt {attempt + 1}).")
+            except requests.exceptions.ConnectionError as e:
+                self.log(f"Connection error for {url} (Attempt {attempt + 1}): {e}")
+            except requests.exceptions.HTTPError as e:
+                self.log(f"HTTP error for {url} (Attempt {attempt + 1}): {e.response.status_code} - {e.response.text}")
+                # For 4xx client errors, retrying might not help unless the error is transient.
+                # For 5xx server errors, retries are often beneficial.
+                # For now, we'll retry all errors up to max_retries.
+            except requests.exceptions.RequestException as e:
+                self.log(f"An unexpected request error occurred for {url} (Attempt {attempt + 1}): {e}")
+            
+            if attempt < max_retries - 1:
+                self.log(f"Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+        
+        self.log(f"Failed to {method} {url} after {max_retries} attempts.")
+        return None
+
+    def get(self, url: str, params: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None, **kwargs) -> Optional[str]:
+        """
+        Performs an HTTP GET request.
+
+        Args:
+            url (str): The URL to send the GET request to.
+            params (Optional[Dict[str, Any]]): Dictionary of URL parameters to append to the URL.
+            headers (Optional[Dict[str, str]]): Dictionary of HTTP headers to send with the request.
+            **kwargs: Additional arguments for `_make_request` and `requests.request`.
+
+        Returns:
+            Optional[str]: The response text if successful, None otherwise.
+        """
+        response = self._make_request("GET", url, params=params, headers=headers, **kwargs)
+        return response.text if response else None
+
+    def post(self, url: str, data: Optional[Dict[str, Any]] = None, json_data: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None, **kwargs) -> Optional[str]:
+        """
+        Performs an HTTP POST request.
+
+        Args:
+            url (str): The URL to send the POST request to.
+            data (Optional[Dict[str, Any]]): Dictionary, bytes, or file-like object to send in the body.
+                                            Used for form-encoded data (Content-Type: application/x-www-form-urlencoded).
+            json_data (Optional[Dict[str, Any]]): A JSON serializable dictionary to send in the body.
+                                                Automatically sets 'Content-Type: application/json' if used.
+            headers (Optional[Dict[str, str]]): Dictionary of HTTP headers to send with the request.
+            **kwargs: Additional arguments for `_make_request` and `requests.request`.
+
+        Returns:
+            Optional[str]: The response text if successful, None otherwise.
+        """
+        response = self._make_request("POST", url, data=data, json=json_data, headers=headers, **kwargs)
+        return response.text if response else None
+
+    def put(self, url: str, data: Optional[Dict[str, Any]] = None, json_data: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None, **kwargs) -> Optional[str]:
+        """
+        Performs an HTTP PUT request.
+        """
+        response = self._make_request("PUT", url, data=data, json=json_data, headers=headers, **kwargs)
+        return response.text if response else None
+
+    def delete(self, url: str, headers: Optional[Dict[str, str]] = None, **kwargs) -> bool:
+        """
+        Performs an HTTP DELETE request.
+
+        Returns:
+            bool: True if the request was successful (no HTTPError), False otherwise.
+        """
+        response = self._make_request("DELETE", url, headers=headers, **kwargs)
+        return response is not None
+
+    def head(self, url: str, headers: Optional[Dict[str, str]] = None, **kwargs) -> Optional[requests.Response]:
+        """
+        Performs an HTTP HEAD request. Returns the response object directly (without body).
+        """
+        return self._make_request("HEAD", url, headers=headers, **kwargs)
+
+    def get_json(self, url: str, params: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None, **kwargs) -> Optional[Dict[str, Any]]:
+        """
+        Performs an HTTP GET request and attempts to parse the response as JSON.
+
+        Returns:
+            Optional[Dict[str, Any]]: The parsed JSON dictionary if successful, None otherwise.
+        """
+        response_text = self.get(url, params=params, headers=headers, **kwargs)
+        if response_text:
+            try:
+                return json.loads(response_text)
+            except json.JSONDecodeError as e:
+                self.log(f"Error decoding JSON from {url}: {e}")
+        return None
+
+    def post_json(self, url: str, payload: Dict[str, Any], headers: Optional[Dict[str, str]] = None, **kwargs) -> Optional[Dict[str, Any]]:
+        """
+        Performs an HTTP POST request with a JSON payload and attempts to parse the response as JSON.
+
+        Args:
+            url (str): The URL for the POST request.
+            payload (Dict[str, Any]): The dictionary to be sent as a JSON body.
+            headers (Optional[Dict[str, str]]): HTTP headers for the request.
+            **kwargs: Additional arguments for `_make_request` and `requests.request`.
+
+        Returns:
+            Optional[Dict[str, Any]]: The parsed JSON dictionary from the response if successful, None otherwise.
+        """
+        # Ensure 'Content-Type' header is set for JSON posts, if not already provided
+        if headers is None:
+            headers = {"Content-Type": "application/json"}
+        elif "Content-Type" not in headers:
+            headers["Content-Type"] = "application/json"
+            
+        response_text = self.post(url, json_data=payload, headers=headers, **kwargs)
+        if response_text:
+            try:
+                return json.loads(response_text)
+            except json.JSONDecodeError as e:
+                self.log(f"Error decoding JSON from {url}: {e}")
+        return None

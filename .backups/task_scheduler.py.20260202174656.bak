@@ -1,0 +1,82 @@
+import time
+import queue
+import threading
+from typing import Callable, Any, Optional
+from modules.executor import Executor
+from modules.memory import Memory
+from modules.networking import Networking
+
+class TaskScheduler:
+    """
+    The Task Scheduler manages the lifecycle of tasks within the Genesis OS.
+    It handles priority queues, resource allocation, and task delegation to agents.
+    """
+    
+    def __init__(self, executor: Executor, memory: Memory, networking: Networking):
+        self.executor = executor
+        self.memory = memory
+        self.networking = networking
+        self.task_queue = queue.PriorityQueue()
+        self.running = False
+        self.lock = threading.Lock()
+        self.agents = {}  # Map agent IDs to agent instances
+        
+    def register_agent(self, agent_id: str, agent_instance: Any):
+        """Register an agent to handle specific tasks."""
+        with self.lock:
+            self.agents[agent_id] = agent_instance
+
+    def schedule_task(self, task_id: str, action: Callable, priority: int = 5, agent_id: Optional[str] = None):
+        """
+        Add a task to the system queue.
+        Priority: 0 (Critical) to 10 (Lowest)
+        """
+        task_meta = {
+            'id': task_id,
+            'action': action,
+            'priority': priority,
+            'agent_id': agent_id,
+            'timestamp': time.time()
+        }
+        self.task_queue.put((priority, task_meta))
+        self.memory.log(f"Scheduler: Task {task_id} queued with priority {priority}")
+
+    def run_scheduler(self):
+        """Main loop for the scheduler."""
+        self.running = True
+        self.memory.log("Scheduler: System running.")
+        
+        while self.running:
+            try:
+                # Get task with timeout to allow for graceful shutdown
+                priority, task_meta = self.task_queue.get(timeout=1)
+                self._process_task(task_meta)
+                self.task_queue.task_done()
+            except queue.Empty:
+                continue
+            except Exception as e:
+                self.memory.log(f"Scheduler Error: {e}")
+                time.sleep(0.1)
+
+    def _process_task(self, task_meta):
+        """Determine execution path based on priority and requirements."""
+        task_id = task_meta['id']
+        action = task_meta['action']
+        agent_id = task_meta['agent_id']
+        
+        self.memory.log(f"Scheduler: Executing Task {task_id}")
+
+        # If specific agent requested, delegate
+        if agent_id and agent_id in self.agents:
+            self.memory.log(f"Scheduler: Delegating Task {task_id} to Agent {agent_id}")
+            agent = self.agents[agent_id]
+            agent.execute(action)
+        else:
+            # Default to main executor
+            self.executor.execute(action)
+
+        self.memory.log(f"Scheduler: Task {task_id} completed")
+
+    def shutdown(self):
+        self.running = False
+        self.memory.log("Scheduler: System shutdown initiated.")

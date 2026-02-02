@@ -1,0 +1,87 @@
+import queue
+import threading
+import time
+from typing import Callable, Any, Optional
+from dataclasses import dataclass, field
+from enum import Enum, auto
+
+class TaskPriority(Enum):
+    CRITICAL = auto()
+    HIGH = auto()
+    NORMAL = auto()
+    LOW = auto()
+    BACKGROUND = auto()
+
+@dataclass(order=True)
+class Task:
+    priority: TaskPriority
+    timestamp: float = field(compare=False)
+    callback: Callable = None
+    args: tuple = ()
+    kwargs: dict = None
+    retries: int = 0
+    max_retries: int = 3
+    name: str = "Unnamed Task"
+
+    def __post_init__(self):
+        if self.kwargs is None:
+            self.kwargs = {}
+
+    def execute(self) -> Any:
+        """Execute the task callback."""
+        try:
+            return self.callback(*self.args, **self.kwargs)
+        except Exception as e:
+            if self.retries < self.max_retries:
+                self.retries += 1
+                print(f"[Scheduler] Task '{self.name}' failed (Retry {self.retries}/{self.max_retries}). Error: {e}")
+                return self.execute() # Retry immediately
+            else:
+                print(f"[Scheduler] Task '{self.name}' failed permanently. Error: {e}")
+                raise
+
+class TaskScheduler:
+    def __init__(self, name: str = "MainScheduler"):
+        self.name = name
+        self.queue: queue.PriorityQueue = queue.PriorityQueue()
+        self.lock = threading.Lock()
+        self.running = False
+        self.worker_thread = None
+
+    def add_task(self, callback: Callable, priority: TaskPriority = TaskPriority.NORMAL, 
+                 args: tuple = (), kwargs: dict = None, name: str = "Task", retries: int = 0) -> str:
+        with self.lock:
+            task = Task(priority=priority, timestamp=time.time(), callback=callback, 
+                        args=args, kwargs=kwargs, retries=retries, name=name)
+            self.queue.put(task)
+            print(f"[Scheduler] Queued: {name} (Priority: {priority.name})")
+            return "task_id_placeholder"
+
+    def start(self):
+        if not self.running:
+            self.running = True
+            self.worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
+            self.worker_thread.start()
+            print(f"[Scheduler] {self.name} started.")
+
+    def stop(self):
+        self.running = False
+        if self.worker_thread:
+            self.worker_thread.join()
+        print(f"[Scheduler] {self.name} stopped.")
+
+    def _worker_loop(self):
+        while self.running:
+            try:
+                # Timeout to allow checking self.running without blocking forever on get
+                task = self.queue.get(timeout=0.1)
+                print(f"[Scheduler] Executing: {task.name}")
+                result = task.execute()
+                self.queue.task_done()
+            except queue.Empty:
+                continue
+            except Exception as e:
+                print(f"[Scheduler] Fatal error in worker loop: {e}")
+
+    def get_pending_count(self) -> int:
+        return self.queue.qsize()

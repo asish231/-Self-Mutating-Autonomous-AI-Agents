@@ -1,4 +1,13 @@
 {
-    "api_key": "af771f2849ec4e169a0fca07d951e10e.gmT5KGB7QFvmy527",
-    "model_name": "glm-4.7-flash"
+    "api_keys": {
+        "gemini": "AIzaSyA1tG2cYU8paFveXfTv5GC39Mod6vUIFTc",
+        "zai": "af771f2849ec4e169a0fca07d951e10e.gmT5KGB7QFvmy527",
+        "openrouter": "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"
+    },
+    "models": {
+        "primary": "gemini-2.5-flash",
+        "secondary": "inception/mercury-coder",
+        "fallback": "glm-4.7-flash"
+    },
+    "provider_switch_threshold": 2
 }

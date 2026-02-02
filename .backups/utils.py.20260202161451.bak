@@ -1,0 +1,185 @@
+import os
+import ast
+import json
+import logging
+import shutil
+from typing import Optional, Callable
+
+class FileSystem:
+    """
+    Provides foundational file system operations for the Genesis Kernel.
+    Acts as a wrapper around standard os library functions to ensure
+    consistent error handling and logging.
+    """
+
+    def __init__(self, log_func: Optional[Callable[[str], None]] = None):
+        self.log = log_func if log_func else self._default_log
+
+    def _default_log(self, message: str):
+        """Default logging function if none is provided."""
+        print(f"[FileSystem] {message}")
+
+    def read_file(self, filepath: str) -> Optional[str]:
+        """
+        Reads the content of a file safely.
+
+        Args:
+            filepath (str): Path to the file.
+
+        Returns:
+            Optional[str]: File content or None if error.
+        """
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                return f.read()
+        except FileNotFoundError:
+            self.log(f"File not found: {filepath}")
+        except PermissionError:
+            self.log(f"Permission denied: {filepath}")
+        except Exception as e:
+            self.log(f"Error reading {filepath}: {e}")
+        return None
+
+    def write_file(self, filepath: str, content: str, mode: str = 'w', encoding: str = 'utf-8') -> bool:
+        """
+        Writes content to a file, creating directories if necessary.
+
+        Args:
+            filepath (str): Path to the file.
+            content (str): Content to write.
+            mode (str): Write mode ('w' or 'a').
+            encoding (str): File encoding.
+
+        Returns:
+            bool: Success status.
+        """
+        try:
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            
+            with open(filepath, mode, encoding=encoding) as f:
+                f.write(content)
+            return True
+        except Exception as e:
+            self.log(f"Error writing to {filepath}: {e}")
+            return False
+
+    def delete_file(self, filepath: str) -> bool:
+        """
+        Deletes a file if it exists.
+
+        Args:
+            filepath (str): Path to the file.
+
+        Returns:
+            bool: Success status.
+        """
+        try:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+                self.log(f"Deleted file: {filepath}")
+                return True
+            else:
+                self.log(f"File not found, nothing to delete: {filepath}")
+                return False
+        except Exception as e:
+            self.log(f"Error deleting {filepath}: {e}")
+            return False
+
+    def list_directory(self, directory: str) -> Optional[list]:
+        """Lists contents of a directory."""
+        try:
+            return os.listdir(directory)
+        except Exception as e:
+            self.log(f"Error listing directory {directory}: {e}")
+            return None
+
+    def copy_file(self, src: str, dst: str) -> bool:
+        """Copies a file from src to dst."""
+        try:
+            shutil.copy2(src, dst)
+            return True
+        except Exception as e:
+            self.log(f"Error copying {src} to {dst}: {e}")
+            return False
+
+class ASTValidator:
+    """
+    Validates Python code syntax using Abstract Syntax Trees (AST) to prevent
+    self-corruption via invalid code generation.
+    """
+
+    @staticmethod
+    def validate_syntax(code_string: str) -> tuple[bool, Optional[str]]:
+        """
+        Checks if a string of Python code is syntactically valid.
+
+        Args:
+            code_string (str): The code to validate.
+
+        Returns:
+            tuple[bool, Optional[str]]: (is_valid, error_message)
+        """
+        try:
+            ast.parse(code_string)
+            return True, None
+        except SyntaxError as e:
+            return False, f"Syntax Error at line {e.lineno}: {e.msg}"
+        except IndentationError as e:
+            return False, f"Indentation Error at line {e.lineno}: {e.msg}"
+        except Exception as e:
+            return False, f"Unexpected validation error: {e}"
+
+class CodeSanitizer:
+    """
+    Provides basic sanitization for code generation to ensure safety
+    and compatibility with the existing system.
+    """
+
+    @staticmethod
+    def ensure_imports(code: str, required_imports: list) -> str:
+        """
+        Ensures that the code string contains the required imports.
+        If missing, they are prepended.
+
+        Args:
+            code (str): The generated code.
+            required_imports (list): List of strings like ['os', 'json'].
+
+        Returns:
+            str: Code with added imports.
+        """
+        current_imports = set()
+        lines = code.split('\n')
+        
+        # Parse current imports
+        for line in lines:
+            if line.strip().startswith('import '):
+                module = line.strip().split()[1].split('.')[0]
+                current_imports.add(module)
+            elif line.strip().startswith('from '):
+                parts = line.strip().split('import ')
+                if len(parts) == 2:
+                    module = parts[0].split('from ')[1].split('.')[0]
+                    current_imports.add(module)
+
+        missing = [imp for imp in required_imports if imp not in current_imports]
+        
+        if not missing:
+            return code
+
+        import_block = "\n".join([f"import {imp}" for imp in missing]) + "\n"
+        return import_block + "\n" + code
+
+class ConfigLoader:
+    """
+    Helper to load JSON configuration files.
+    """
+    @staticmethod
+    def load_json(filepath: str) -> Optional[dict]:
+        try:
+            with open(filepath, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Error loading config: {e}")
+            return None

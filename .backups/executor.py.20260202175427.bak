@@ -1,0 +1,91 @@
+import subprocess
+import shlex
+import time
+import os
+import sys
+
+class TaskExecutor:
+    """
+    A secure subsystem for executing terminal commands with sandboxing,
+    timeout protection, and output capture.
+    """
+    
+    def __init__(self, strict_mode=True):
+        self.strict_mode = strict_mode
+        # Whitelist of allowed commands (basic implementation)
+        self.allowed_commands = {
+            'ls', 'pwd', 'echo', 'cat', 'head', 'tail', 'grep', 'wc', 'date',
+            'whoami', 'uname', 'hostname', 'env', 'ps', 'top', 'df', 'du',
+            'free', 'nproc', 'python3', 'python', 'pip', 'git', 'curl', 'wget'
+        }
+
+    def _sanitize_command(self, command_str):
+        """Basic sanitization to prevent injection attacks."""
+        if not command_str or len(command_str.strip()) == 0:
+            raise ValueError("Empty command")
+        
+        # Check for dangerous patterns
+        dangerous_patterns = [';', '&&', '||', '|', '>', '>>', '<', '$(', '`', ';']
+        if any(pattern in command_str for pattern in dangerous_patterns):
+            raise ValueError("Forbidden shell operators detected")
+
+        # Split command
+        try:
+            return shlex.split(command_str)
+        except ValueError as e:
+            raise ValueError(f"Command parsing failed: {e}")
+
+    def execute(self, command_str, timeout=30):
+        """
+        Execute a command in a secure environment.
+        
+        Args:
+            command_str (str): The command to execute.
+            timeout (int): Timeout in seconds.
+            
+        Returns:
+            dict: {'status': 'success'|'error'|'timeout', 'output': str, 'returncode': int}
+        """
+        try:
+            # 1. Sanitize
+            cmd_args = self._sanitize_command(command_str)
+            if self.strict_mode and cmd_args[0] not in self.allowed_commands:
+                raise ValueError(f"Command '{cmd_args[0]}' is not allowed in strict mode")
+
+            # 2. Execute
+            process = subprocess.Popen(
+                cmd_args,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True, # Handle text output
+                shell=False
+            )
+
+            try:
+                stdout, stderr = process.communicate(timeout=timeout)
+                return {
+                    "status": "success" if process.returncode == 0 else "failure",
+                    "returncode": process.returncode,
+                    "stdout": stdout.strip(),
+                    "stderr": stderr.strip(),
+                    "command": command_str
+                }
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.communicate()
+                return {
+                    "status": "timeout",
+                    "returncode": -1,
+                    "stdout": "",
+                    "stderr": f"Execution timed out after {timeout} seconds",
+                    "command": command_str
+                }
+
+        except Exception as e:
+            return {
+                "status": "error",
+                "returncode": -1,
+                "stdout": "",
+                "stderr": str(e),
+                "command": command_str
+            }

@@ -1,0 +1,162 @@
+import os
+import sys
+import ast
+import shutil
+import time
+from typing import Callable
+
+class SelfMutator:
+    """
+    Responsible for the agent's ability to rewrite its own source code.
+    Implements the genetic safety system: AST validation, snapshotting, 
+    and rolling window backups.
+    """
+
+    def __init__(self, root_dir: str, script_path: str, logger: Callable[[str], None]):
+        """
+        Initializes the SelfMutator.
+
+        Args:
+            root_dir (str): The root directory of the agent.
+            script_path (str): The absolute path to the main agent file (evolve_agent.py).
+            logger (Callable[[str], None]): A logging function.
+        """
+        self.root_dir = root_dir
+        self.script_path = script_path
+        self.log = logger
+        self.backup_dir = os.path.join(root_dir, "backups")
+        
+        # Ensure backup directory exists
+        if not os.path.exists(self.backup_dir):
+            try:
+                os.makedirs(self.backup_dir)
+                self.log(f"Created backup directory: {self.backup_dir}")
+            except OSError as e:
+                self.log(f"Failed to create backup directory: {e}")
+
+    def read_self(self) -> str:
+        """
+        Reads the current source code of the agent into a string.
+        
+        Returns:
+            str: The content of the source file.
+        """
+        try:
+            with open(self.script_path, "r", encoding="utf-8") as f:
+                return f.read()
+        except Exception as e:
+            self.log(f"Error reading self: {e}")
+            raise
+
+    def validate_syntax(self, code_str: str) -> bool:
+        """
+        Validates the syntax of the provided code string using Python's AST parser.
+        
+        Args:
+            code_str (str): The code to validate.
+            
+        Returns:
+            bool: True if syntax is valid, False otherwise.
+        """
+        try:
+            ast.parse(code_str)
+            return True
+        except SyntaxError as e:
+            self.log(f"Syntax Error detected: {e}")
+            return False
+
+    def create_backup(self) -> bool:
+        """
+        Creates a timestamped backup of the current source file.
+        
+        Returns:
+            bool: True if successful, False otherwise.
+        """
+        timestamp = int(time.time())
+        backup_name = f"evolve_agent_{timestamp}.bak"
+        backup_path = os.path.join(self.backup_dir, backup_name)
+        
+        try:
+            shutil.copy2(self.script_path, backup_path)
+            self.log(f"Backup created: {backup_path}")
+            return True
+        except Exception as e:
+            self.log(f"Failed to create backup: {e}")
+            return False
+
+    def cleanup_old_backups(self, keep_count: int = 3) -> int:
+        """
+        Removes old backup files, keeping only the most recent 'keep_count'.
+        
+        Args:
+            keep_count (int): Number of backups to retain.
+            
+        Returns:
+            int: Number of backups deleted.
+        """
+        deleted_count = 0
+        try:
+            backups = []
+            for filename in os.listdir(self.backup_dir):
+                if filename.endswith(".bak"):
+                    full_path = os.path.join(self.backup_dir, filename)
+                    backups.append((full_path, os.path.getmtime(full_path)))
+            
+            # Sort by modification time (newest first)
+            backups.sort(key=lambda x: x[1], reverse=True)
+            
+            # Remove oldest ones
+            for old_backup_path, _ in backups[keep_count:]:
+                os.remove(old_backup_path)
+                deleted_count += 1
+                self.log(f"Cleaned up old backup: {os.path.basename(old_backup_path)}")
+                
+        except Exception as e:
+            self.log(f"Error during cleanup: {e}")
+            
+        return deleted_count
+
+    def apply_evolution(self, new_code: str) -> bool:
+        """
+        Applies the evolutionary changes to the source file.
+        Includes validation and safety checks.
+        
+        Args:
+            new_code (str): The new code content to write.
+            
+        Returns:
+            bool: True if evolution was successful, False otherwise.
+        """
+        # 1. Syntax Validation
+        if not self.validate_syntax(new_code):
+            self.log("Evolution rejected: Syntax validation failed.")
+            return False
+
+        # 2. Backup Creation
+        if not self.create_backup():
+            self.log("Evolution aborted: Backup creation failed.")
+            return False
+
+        # 3. Cleanup (maintain rolling window)
+        self.cleanup_old_backups()
+
+        # 4. Write to Disk
+        try:
+            with open(self.script_path, "w", encoding="utf-8") as f:
+                f.write(new_code)
+            self.log("Evolution successful. Source code updated.")
+            return True
+        except Exception as e:
+            self.log(f"Error writing new code: {e}")
+            return False
+
+    def restart_agent(self):
+        """
+        Terminates the current process and restarts it with the new code.
+        Note: This is typically called by the parent process (GenesisKernel) 
+        after this mutator returns success.
+        """
+        self.log("Preparing for self-restart...")
+        # In a real recursive environment, this would be os.execv
+        # For this modular architecture, we assume the calling kernel handles the restart
+        pass

@@ -1,0 +1,98 @@
+import subprocess
+import os
+from typing import Callable, Optional, List, Tuple
+
+class TaskExecutor:
+    """
+    Provides functionality to safely execute external commands or scripts.
+    Implements safeguards such as command whitelisting, timeout mechanisms,
+    and robust error handling for process execution using Python's subprocess module.
+    """
+
+    def __init__(self, log_func: Optional[Callable[[str], None]] = None):
+        """
+        Initializes the TaskExecutor.
+
+        Args:
+            log_func (Optional[Callable[[str], None]]): A function to use for logging messages.
+                                                        If None, a default print-based logger is used.
+        """
+        self.log = log_func if log_func else self._default_log
+        # Define a basic whitelist of "safe" commands for initial implementation.
+        # This should be expanded or made configurable/dynamic by future evolutions.
+        # Note: 'python' and 'pip' are included for agent self-repair (e.g., installing missing dependencies).
+        # In a more restrictive environment, these should be handled with extreme caution or removed.
+        self.whitelisted_commands = ["ls", "echo", "cat", "python", "pip", "grep", "find", "pwd"]
+
+    def _default_log(self, message: str):
+        """Default logging function if none is provided."""
+        print(f"[TaskExecutor] {message}")
+
+    def _is_whitelisted(self, command_path: str) -> bool:
+        """
+        Checks if the base command (e.g., 'ls' from '/bin/ls') is in the whitelist.
+        This is a basic check and can be improved with path validation or hashing.
+        """
+        base_command = os.path.basename(command_path)
+        return base_command in self.whitelisted_commands
+
+    def execute_command(self, command: List[str], timeout: int = 60, use_whitelist: bool = True) -> Tuple[int, str, str]:
+        """
+        Executes an external command with safeguards.
+
+        Args:
+            command (List[str]): The command and its arguments as a list (e.g., ["ls", "-la"]).
+                                 The first element must be the executable.
+            timeout (int): Maximum time in seconds to wait for the command to complete.
+            use_whitelist (bool): If True, only commands in `self.whitelisted_commands` can be executed.
+
+        Returns:
+            Tuple[int, str, str]: A tuple containing (exit_code, stdout, stderr).
+                                  exit_code: 0 for success, non-zero for failure or error.
+                                  stdout: Standard output of the command.
+                                  stderr: Standard error of the command.
+            
+            Returns (-1, "", "Error Message") on critical internal errors (e.g., whitelist violation).
+        """
+        if not command:
+            self.log("Error: No command provided for execution.")
+            return -1, "", "No command provided."
+
+        cmd_executable = command[0]
+        if use_whitelist and not self._is_whitelisted(cmd_executable):
+            error_msg = f"Security Alert: Command '{cmd_executable}' is not whitelisted for execution."
+            self.log(error_msg)
+            return -1, "", error_msg
+
+        self.log(f"Executing command: {' '.join(command)} (timeout: {timeout}s)")
+
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False  # Do not raise CalledProcessError, capture stderr and exit code instead
+            )
+            
+            self.log(f"Command '{' '.join(command)}' completed with exit code {result.returncode}.")
+            if result.stderr:
+                self.log(f"Stderr: {result.stderr.strip()}")
+            if result.stdout:
+                # Log a snippet of stdout to avoid overwhelming logs with large outputs
+                self.log(f"Stdout (first 100 chars): {result.stdout.strip()[:100]}{'...' if len(result.stdout) > 100 else ''}")
+
+            return result.returncode, result.stdout, result.stderr
+
+        except subprocess.TimeoutExpired:
+            self.log(f"Command '{' '.join(command)}' timed out after {timeout} seconds.")
+            return -1, "", f"Command timed out after {timeout} seconds."
+        except FileNotFoundError:
+            self.log(f"Error: Command executable '{cmd_executable}' not found in PATH.")
+            return -1, "", f"Command executable '{cmd_executable}' not found."
+        except OSError as e:
+            self.log(f"OS Error during command execution '{' '.join(command)}': {e}")
+            return -1, "", f"OS Error: {e}"
+        except Exception as e:
+            self.log(f"An unexpected error occurred during command execution '{' '.join(command)}': {e}")
+            return -1, "", f"Unexpected error: {e}"
